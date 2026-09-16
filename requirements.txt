@@ -1,0 +1,11 @@
+# KOHLER AI Bathroom Designer - Prototype dependencies
+# Kept minimal for a 2-day build. Add packages only as later phases need them.
+
+streamlit>=1.36.0
+pandas>=2.2.0
+numpy>=1.26.0
+python-dotenv>=1.0.1
+
+# Added when LLM integration (Phase 2+) begins, e.g.:
+# openai>=1.30.0
+# anthropic>=0.31.0

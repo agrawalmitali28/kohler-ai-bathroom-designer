@@ -1,0 +1,26 @@
+product_id,product_name,category,price,width_in,depth_in,height_in,style,water_efficiency,smart_features,color,description
+ST-001,AquaSense Smart Comfort Toilet,Smart Toilet,2450,16,28,17,Modern,High-Efficiency (1.0 gpf),"Heated seat, bidet wash, auto-open/close, night light",White,Prototype demo: elongated smart toilet with heated seat and auto bidet functions.
+ST-002,AquaSense Smart Comfort Toilet Compact,Smart Toilet,2200,15,26,16,Modern,High-Efficiency (1.0 gpf),"Heated seat, bidet wash, remote control",White,Prototype demo: space-saving smart toilet for smaller bathrooms.
+ST-003,Serenity Spa Smart Toilet,Smart Toilet,3200,17,29,18,Contemporary,Ultra-High-Efficiency (0.8 gpf),"Bidet wash, air dryer, deodorizer, app control",Biscuit,Prototype demo: premium smart toilet with app-based controls and deodorizing fan.
+ST-004,Serenity Spa Smart Toilet Elite,Smart Toilet,3800,17,30,19,Contemporary,Ultra-High-Efficiency (0.8 gpf),"Bidet wash, air dryer, ambient lighting, voice control",Black,Prototype demo: top-tier smart toilet with voice control and ambient lighting.
+T-001,Everyday Comfort Height Toilet,Toilet,320,16,27,17,Traditional,High-Efficiency (1.28 gpf),None,White,Prototype demo: standard two-piece comfort-height toilet.
+T-002,Everyday Compact Toilet,Toilet,280,15,25,16,Traditional,High-Efficiency (1.28 gpf),None,White,Prototype demo: compact two-piece toilet for tight spaces.
+T-003,Urban Line One-Piece Toilet,Toilet,480,16,28,16,Modern,Ultra-High-Efficiency (1.0 gpf),None,White,Prototype demo: sleek one-piece toilet with concealed trapway.
+T-004,Heritage Classic Toilet,Toilet,395,16,29,18,Traditional,High-Efficiency (1.28 gpf),None,Biscuit,Prototype demo: classic-styled two-piece toilet with decorative tank lid.
+F-001,Crestline Single-Handle Faucet,Faucet,145,6,8,9,Traditional,WaterSense Certified,None,Chrome,"Prototype demo: single-handle bathroom sink faucet, WaterSense rated."
+F-002,Urban Line Widespread Faucet,Faucet,210,10,6,7,Modern,WaterSense Certified,None,Matte Black,Prototype demo: widespread two-handle faucet with minimalist design.
+F-003,Cascade Waterfall Faucet,Faucet,260,7,7,10,Contemporary,WaterSense Certified,LED temperature indicator,Brushed Nickel,Prototype demo: waterfall-style faucet with LED temperature glow.
+F-004,Heritage Cross-Handle Faucet,Faucet,190,8,7,8,Traditional,WaterSense Certified,None,Polished Brass,Prototype demo: classic cross-handle faucet for a vintage aesthetic.
+SH-001,Rainfall Shower System,Shower,680,10,10,24,Contemporary,2.0 gpm,None,Chrome,Prototype demo: rainfall showerhead with adjustable handheld sprayer.
+SH-002,Urban Line Shower Panel,Shower,890,12,4,48,Modern,2.0 gpm,None,Matte Black,Prototype demo: wall-mounted shower panel with body jets.
+SH-003,SmartTemp Digital Shower System,Shower,1350,11,11,26,Contemporary,1.75 gpm,"Digital temperature control, presets, app control",Brushed Nickel,Prototype demo: digitally controlled shower with saved temperature presets.
+SH-004,Classic Handshower Combo,Shower,420,8,8,20,Traditional,2.0 gpm,None,Polished Chrome,Prototype demo: traditional fixed head plus handheld shower combo.
+V-001,Urban Line 36in Floating Vanity,Vanity,980,36,21,20,Modern,N/A,None,Matte White,Prototype demo: wall-mounted floating vanity with soft-close drawers.
+V-002,Heritage 48in Vanity,Vanity,1450,48,22,34,Traditional,N/A,None,Espresso,Prototype demo: freestanding double-drawer vanity with framed mirror pairing.
+V-003,Compact 24in Vanity,Vanity,620,24,18,32,Modern,N/A,None,White,Prototype demo: compact single-drawer vanity for small bathrooms.
+V-004,Serenity 60in Double Vanity,Vanity,2100,60,22,34,Contemporary,N/A,Integrated LED mirror lighting,Gray Oak,Prototype demo: double-sink vanity with integrated LED-lit mirror.
+V-005,Industrial 30in Vanity,Vanity,890,30,20,33,Industrial,N/A,None,Black Metal / Wood,"Prototype demo: metal-frame vanity with open shelving, industrial aesthetic."
+WB-001,Classic Oval Drop-In Basin,Washbasin,180,19,16,8,Traditional,N/A,None,White,Prototype demo: standard oval drop-in ceramic washbasin.
+WB-002,Urban Line Vessel Basin,Washbasin,240,16,16,6,Modern,N/A,None,Matte White,Prototype demo: above-counter round vessel basin.
+WB-003,Cascade Rectangular Undermount Basin,Washbasin,260,20,14,7,Contemporary,N/A,None,White,Prototype demo: rectangular undermount basin for a clean vanity look.
+WB-004,Heritage Pedestal Basin,Washbasin,310,20,17,34,Traditional,N/A,None,White,"Prototype demo: classic pedestal-mounted basin, no vanity required."
