@@ -82,6 +82,11 @@ cp .env.example .env       # then fill in your real LLM API key
 streamlit run app.py
 ```
 
+> **Phase 3A note:** `src/llm_parser.py` now calls the Anthropic API to
+> turn free-text bathroom descriptions into structured requirements. It
+> requires a local `.env` file with `LLM_API_KEY` set (see
+> `.env.example`) — never commit a real `.env` file.
+
 ## Data disclaimer
 
 `data/products.csv` contains **invented, realistic-looking demonstration

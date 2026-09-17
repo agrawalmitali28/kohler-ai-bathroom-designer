@@ -6,6 +6,6 @@ pandas>=2.2.0
 numpy>=1.26.0
 python-dotenv>=1.0.1
 
-# Added when LLM integration (Phase 2+) begins, e.g.:
-# openai>=1.30.0
-# anthropic>=0.31.0
+# Phase 3A: LLM requirement parser (src/llm_parser.py) uses the official
+# Anthropic Python SDK to call the Claude API.
+anthropic>=0.40.0
