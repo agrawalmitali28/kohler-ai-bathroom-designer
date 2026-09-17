@@ -23,7 +23,9 @@ recommendation_engine.load_products() — nothing here hard-codes a
 product, price, or specification.
 """
 
+import html
 import os
+import re
 
 import pandas as pd
 import streamlit as st
@@ -55,33 +57,122 @@ EXAMPLE_REQUEST = (
 # ----------------------------------------------------------------------
 # DEMO_MODE
 # ----------------------------------------------------------------------
-# Off by default. This is a prototype for a 2-day competition build, and
-# the LLM API key may not be available in every environment the UI gets
-# shown in (e.g. a judge's machine, a quick screen-share). When someone
-# explicitly sets DEMO_MODE=true in their .env, the app skips the real
-# LLM call and instead feeds one FIXED, clearly-labeled example request
-# straight into validation -> adapter -> recommendation_engine, so the
-# rest of the pipeline can still be demonstrated.
-#
-# This never silently substitutes for a missing API key: if DEMO_MODE is
-# not explicitly enabled and the API key is missing, the app shows a
-# real configuration error (see run_pipeline()) rather than pretending
-# to work.
+# Off by default. When DEMO_MODE=true, the app skips the paid LLM call and
+# uses a small deterministic local parser on the text entered in the UI.
+# This keeps the demo usable without changing the real LLM path.
 # ----------------------------------------------------------------------
 DEMO_MODE = os.environ.get("DEMO_MODE", "false").strip().lower() == "true"
 
-DEMO_FIXED_REQUEST_TEXT = (
-    "[DEMO MODE — fixed example, not the text you typed] "
-    "My bathroom is 5 by 4 feet. Budget is \u20b980,000. I need a toilet, basin and tap."
-)
-DEMO_FIXED_REQUIREMENTS = {
-    "length_ft": 5,
-    "width_ft": 4,
-    "budget_inr": 80000,
-    "theme": "Modern",
-    "required_categories": ["Toilet", "Washbasin", "Faucet"],
-    "preferences": {"color": None, "water_efficiency_keyword": None, "feature_keywords": []},
-}
+
+def parse_demo_requirements(user_text: str) -> dict:
+    """Parse the demo's core requirements locally without calling an LLM."""
+    text = user_text.strip()
+
+    # Dimensions: supports "7 x 10 ft", "7 × 10 feet", "7 by 10 ft", etc.
+    dimension_match = re.search(
+        r"(?P<a>\d+(?:\.\d+)?)\s*(?:x|×|by)\s*"
+        r"(?P<b>\d+(?:\.\d+)?)\s*(?:feet|foot|ft)?",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    length_ft = width_ft = None
+    if dimension_match:
+        length_ft = float(dimension_match.group("a"))
+        width_ft = float(dimension_match.group("b"))
+
+    # Budget: supports ₹1.5 lakh/lakhs/lac/lacs, 1.5 lakh, ₹150000, etc.
+    budget_inr = None
+    budget_match = re.search(
+        r"(?:₹\s*)?(?P<amount>\d+(?:\.\d+)?)\s*"
+        r"(?P<unit>lakh|lakhs|lac|lacs|l)\b",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if budget_match:
+        budget_inr = float(budget_match.group("amount")) * 100000
+    else:
+        budget_match = re.search(
+            r"(?:₹\s*)?(?P<amount>\d{1,3}(?:,\d{3})+|\d{5,7})(?!\s*(?:lakh|lakhs|lac|lacs|l)\b)",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if budget_match:
+            budget_inr = float(budget_match.group("amount").replace(",", ""))
+
+    category_patterns = [
+        ("Smart Toilet", r"\bsmart\s+toilet\b"),
+        ("Toilet", r"\btoilet\b"),
+        ("Washbasin", r"\bwashbasin\b|\bbasin\b|\bsink\b"),
+        ("Faucet", r"\bfaucet\b|\btap\b"),
+        ("Shower", r"\bshower\b"),
+        ("Vanity", r"\bvanity\b"),
+    ]
+    required_categories = []
+    for category, pattern in category_patterns:
+        if re.search(pattern, text, flags=re.IGNORECASE):
+            required_categories.append(category)
+
+    # If "smart toilet" was requested, don't duplicate it as a generic toilet.
+    if "Smart Toilet" in required_categories and "Toilet" in required_categories:
+        required_categories.remove("Toilet")
+
+    style_keywords = [
+        "modern", "minimalist", "contemporary", "classic",
+        "traditional", "luxury", "elegant", "sophisticated",
+    ]
+    theme = next(
+        (
+            keyword.title()
+            for keyword in style_keywords
+            if re.search(rf"\b{re.escape(keyword)}\b", text, re.IGNORECASE)
+        ),
+        None,
+    )
+
+    color_keywords = [
+        "matte black", "polished chrome", "black", "dark", "white",
+        "chrome", "brass", "gold", "silver",
+    ]
+    color = next(
+        (
+            keyword.title()
+            for keyword in color_keywords
+            if re.search(rf"\b{re.escape(keyword)}\b", text, re.IGNORECASE)
+        ),
+        None,
+    )
+
+    water_efficiency_keyword = None
+    if re.search(
+        r"water[-\s]?efficient|water[-\s]?saving|eco[-\s]?friendly|eco",
+        text,
+        re.IGNORECASE,
+    ):
+        water_efficiency_keyword = "water-efficient"
+
+    feature_keywords = []
+    for keyword, pattern in [
+        ("smart", r"\bsmart\b"),
+        ("dual-flush", r"dual[-\s]?flush"),
+        ("wall-hung", r"wall[-\s]?hung"),
+    ]:
+        if re.search(pattern, text, flags=re.IGNORECASE):
+            feature_keywords.append(keyword)
+
+    return {
+        "length_ft": length_ft,
+        "width_ft": width_ft,
+        "budget_inr": budget_inr,
+        "theme": theme,
+        "required_categories": required_categories,
+        "preferences": {
+            "color": color,
+            "water_efficiency_keyword": water_efficiency_keyword,
+            "feature_keywords": feature_keywords,
+        },
+    }
+
 
 # Human-friendly labels for the "please provide" message.
 FIELD_LABELS = {
@@ -126,12 +217,12 @@ def run_pipeline(user_text: str, products_df: pd.DataFrame, demo_mode: bool = Fa
         "engine_error"      - the recommendation engine raised unexpectedly
         "success"           - recommend_products() ran; see "engine_result"
     """
-    if demo_mode:
-        raw_requirements = DEMO_FIXED_REQUIREMENTS
-    else:
-        if not isinstance(user_text, str) or not user_text.strip():
-            return {"stage": "empty_input"}
+    if not isinstance(user_text, str) or not user_text.strip():
+        return {"stage": "empty_input"}
 
+    if demo_mode:
+        raw_requirements = parse_demo_requirements(user_text)
+    else:
         try:
             raw_requirements = parse_requirements(user_text)
         except LLMConfigurationError as exc:
@@ -203,60 +294,69 @@ def _fmt_inr(value) -> str:
 
 
 def _render_product(product: dict) -> None:
-    """Render one product's full catalog details inside an expander."""
-    with st.expander(f"{product.get('category', '')}: {product.get('product_name', 'Unnamed product')}"):
-        col1, col2 = st.columns(2)
-        with col1:
-            st.write(f"**SKU:** {_fmt(product.get('sku'))}")
-            st.write(f"**Category:** {_fmt(product.get('category'))}")
-            st.write(f"**Collection:** {_fmt(product.get('collection'))}")
-            st.write(f"**Price:** {_fmt_inr(product.get('price'))}")
-            st.write(f"**MRP:** {_fmt_inr(product.get('mrp'))}")
-            st.write(f"**Installation type:** {_fmt(product.get('installation_type'))}")
-        with col2:
-            st.write(f"**Style:** {_fmt(product.get('style'))}")
-            st.write(f"**Color:** {_fmt(product.get('color'))}")
-            st.write(f"**Finish:** {_fmt(product.get('finish'))}")
-            st.write(f"**Water efficiency:** {_fmt(product.get('water_efficiency'))}")
-            st.write(f"**Flow rate (LPM):** {_fmt(product.get('flow_rate_lpm'))}")
+    """Render a compact product card using only catalog data."""
+    name = html.escape(_fmt(product.get("product_name", "Unnamed product")))
+    category = html.escape(_fmt(product.get("category")))
+    collection = html.escape(_fmt(product.get("collection")))
+    price = _fmt_inr(product.get("price"))
+    color = html.escape(_fmt(product.get("color")))
+    finish = html.escape(_fmt(product.get("finish")))
+    style = html.escape(_fmt(product.get("style")))
+    source_url = product.get("source_url")
 
-        features = product.get("features")
-        if features is not None and not (isinstance(features, float) and pd.isna(features)):
-            st.write(f"**Features:** {features}")
+    with st.container(border=True):
+        st.caption(category)
+        st.markdown(f"### {name}")
+        st.markdown(f"**{price}**")
+        st.write(f"Collection: {collection}")
+        st.write(f"Finish: {finish} · Color: {color}")
+        st.write(f"Style: {style}")
 
-        smart_features = product.get("smart_features")
-        if smart_features is not None and not (isinstance(smart_features, float) and pd.isna(smart_features)):
-            st.write(f"**Smart features:** {smart_features}")
+        with st.expander("Product details"):
+            col1, col2 = st.columns(2)
+            with col1:
+                st.write(f"**SKU:** {_fmt(product.get('sku'))}")
+                st.write(f"**MRP:** {_fmt_inr(product.get('mrp'))}")
+                st.write(f"**Installation:** {_fmt(product.get('installation_type'))}")
+                st.write(f"**Water efficiency:** {_fmt(product.get('water_efficiency'))}")
+                st.write(f"**Flow rate:** {_fmt(product.get('flow_rate_lpm'))} LPM")
+            with col2:
+                st.write(
+                    f"**Dimensions:** {_fmt(product.get('width_in'))} × "
+                    f"{_fmt(product.get('depth_in'))} × {_fmt(product.get('height_in'))} in"
+                )
+                st.write(f"**Features:** {_fmt(product.get('features'))}")
+                st.write(f"**Smart features:** {_fmt(product.get('smart_features'))}")
 
-        description = product.get("description")
-        if description is not None and not (isinstance(description, float) and pd.isna(description)):
-            st.write(description)
+            description = product.get("description")
+            if description is not None and not (isinstance(description, float) and pd.isna(description)):
+                st.write(description)
 
-        source_url = product.get("source_url")
         if source_url and not (isinstance(source_url, float) and pd.isna(source_url)):
-            st.link_button("View product on KOHLER India", source_url)
+            st.link_button("View on KOHLER India", source_url)
 
 
 def _render_bundle(index: int, bundle: dict) -> None:
-    st.subheader(f"Bundle #{index}")
+    """Render one recommendation bundle as a compact card."""
+    st.markdown(f"## Bundle {index}")
 
     col1, col2, col3 = st.columns(3)
-    col1.metric("Compatibility Score", f"{bundle['compatibility_score']:.1f} / 100")
-    col2.metric("Total price", _fmt_inr(bundle["total_price"]))
-    col3.metric("Remaining budget", _fmt_inr(bundle["remaining_budget"]))
+    col1.metric("Compatibility", f"{bundle['compatibility_score']:.1f} / 100")
+    col2.metric("Total product cost", _fmt_inr(bundle["total_price"]))
+    col3.metric("Budget remaining", _fmt_inr(bundle["remaining_budget"]))
 
     breakdown = bundle["score_breakdown"]
     st.caption(
-        f"Score breakdown \u2014 style: {breakdown['style_score']:.2f} \u00b7 "
-        f"budget: {breakdown['budget_score']:.2f} \u00b7 "
-        f"spatial: {breakdown['spatial_score']:.2f} \u00b7 "
-        f"feature: {breakdown['feature_score']:.2f}"
+        f"Style {breakdown['style_score']:.2f} · "
+        f"Budget {breakdown['budget_score']:.2f} · "
+        f"Spatial fit {breakdown['spatial_score']:.2f} · "
+        f"Features {breakdown['feature_score']:.2f}"
     )
 
-    for product in bundle["products"]:
-        _render_product(product)
-
-    st.divider()
+    product_columns = st.columns(len(bundle["products"]))
+    for column, product in zip(product_columns, bundle["products"]):
+        with column:
+            _render_product(product)
 
 
 def _render_missing_fields(completeness: dict) -> None:
@@ -266,7 +366,29 @@ def _render_missing_fields(completeness: dict) -> None:
 
 
 def _render_parsed_requirements(clean_requirements: dict) -> None:
-    with st.expander("Parsed requirements (for demo/debug visibility)"):
+    st.markdown("### What I understood")
+
+    preferences = clean_requirements.get("preferences") or {}
+    dimensions = (
+        f"{_fmt(clean_requirements.get('length_ft'))} × "
+        f"{_fmt(clean_requirements.get('width_ft'))} ft"
+    )
+    budget = _fmt_inr(clean_requirements.get("budget_inr"))
+    categories = ", ".join(clean_requirements.get("required_categories") or []) or "Not specified"
+    theme = _fmt(clean_requirements.get("theme"))
+    color = _fmt(preferences.get("color"))
+    water = _fmt(preferences.get("water_efficiency_keyword"))
+    features = ", ".join(preferences.get("feature_keywords") or []) or "None"
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Bathroom size", dimensions)
+    col2.metric("Budget", budget)
+    col3.metric("Style", theme)
+    col4.metric("Products needed", categories)
+
+    st.caption(f"Preferences: {color} · {water} · Features: {features}")
+
+    with st.expander("Show technical details"):
         st.json(clean_requirements)
 
 
@@ -322,6 +444,7 @@ def render_result(result: dict) -> None:
 
         if engine_result["status"] == "ok":
             st.success(engine_result["message"])
+            st.markdown("## Your KOHLER recommendations")
             for i, bundle in enumerate(engine_result["bundles"], start=1):
                 _render_bundle(i, bundle)
         elif engine_result["status"] in ("no_valid_bundles", "missing_categories"):
@@ -338,32 +461,42 @@ def render_result(result: dict) -> None:
 # ----------------------------------------------------------------------
 
 def main() -> None:
-    st.set_page_config(page_title="KOHLER AI Bathroom Designer (Prototype)", layout="wide")
-
-    st.title("KOHLER AI Bathroom Designer & Planner")
-    st.caption("Prototype / demo build \u2014 not an official KOHLER product.")
-    st.write(
-        "Describe the bathroom you want in your own words \u2014 dimensions, budget, "
-        "style, and the fixtures you need \u2014 and this tool will turn it into a "
-        "real, budget-checked KOHLER product bundle."
+    st.set_page_config(
+        page_title="KOHLER AI Bathroom Designer",
+        page_icon="🚿",
+        layout="wide",
     )
+
+    st.markdown(
+        """
+        <style>
+        .block-container {padding-top: 2rem; padding-bottom: 3rem;}
+        div[data-testid="stMetric"] {
+            border: 1px solid rgba(128,128,128,0.25);
+            border-radius: 12px;
+            padding: 0.75rem;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.title("KOHLER AI Bathroom Designer")
+    st.caption("Describe your bathroom. Get a coordinated, budget-checked KOHLER product bundle.")
 
     if DEMO_MODE:
         st.info(
-            "\U0001F6E0\uFE0F DEMO MODE is on (DEMO_MODE=true). The LLM will NOT be called \u2014 "
-            "a fixed example request is used instead. Set DEMO_MODE=false (or remove it) "
-            "in your .env to use real natural-language input."
+            "🛠️ DEMO MODE · No paid LLM API call. "
+            "Your typed request is parsed locally, then sent through the same "
+            "validation, adapter, catalog, and recommendation pipeline."
         )
 
     user_text = st.text_area(
         "Describe your bathroom",
         placeholder=EXAMPLE_REQUEST,
-        height=120,
-        disabled=DEMO_MODE,
+        height=140,
+        help="Include bathroom dimensions, budget, preferred style/finish, and the products you need.",
     )
-
-    if DEMO_MODE:
-        st.caption(f"Fixed demo request that will be used: \u201c{DEMO_FIXED_REQUEST_TEXT}\u201d")
 
     if st.button("Design My Bathroom", type="primary"):
         products_df = get_catalog()
@@ -374,6 +507,8 @@ def main() -> None:
     if "pipeline_result" in st.session_state:
         st.divider()
         render_result(st.session_state["pipeline_result"])
+
+
 
 
 if __name__ == "__main__":
