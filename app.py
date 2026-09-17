@@ -23,6 +23,7 @@ recommendation_engine.load_products() — nothing here hard-codes a
 product, price, or specification.
 """
 
+import copy
 import html
 import os
 import re
@@ -272,6 +273,231 @@ def run_pipeline(user_text: str, products_df: pd.DataFrame, demo_mode: bool = Fa
     }
 
 
+
+# ----------------------------------------------------------------------
+# What-If redesign
+# ----------------------------------------------------------------------
+
+def parse_demo_changes(user_text: str) -> dict:
+    """Parse only the changes requested for a What-If redesign."""
+    text = user_text.strip()
+    changes = parse_demo_requirements(text)
+
+    # A What-If request can omit dimensions/categories because they are
+    # inherited from the current design. Detect a few natural-language
+    # variants that the base demo parser intentionally keeps simple.
+    if re.search(r"\bluxurious(?:ly)?\b", text, re.IGNORECASE):
+        changes["theme"] = "Luxury"
+    elif re.search(r"\bmore\s+luxurious\b", text, re.IGNORECASE):
+        changes["theme"] = "Luxury"
+
+    all_categories = {
+        "Smart Toilet": r"\bsmart\s+toilet\b",
+        "Toilet": r"\btoilet\b",
+        "Washbasin": r"\bwashbasin\b|\bbasin\b|\bsink\b",
+        "Faucet": r"\bfaucet\b|\btap\b",
+        "Shower": r"\bshower\b",
+        "Vanity": r"\bvanity\b",
+    }
+
+    additions = []
+    removals = []
+    for category, pattern in all_categories.items():
+        if re.search(
+            rf"\b(?:add|include|install|want|need|also)\b[^.]*{pattern}",
+            text,
+            re.IGNORECASE,
+        ):
+            additions.append(category)
+        if re.search(
+            rf"\b(?:remove|delete|drop|without)\b[^.]*{pattern}",
+            text,
+            re.IGNORECASE,
+        ):
+            removals.append(category)
+
+    changes["_add_categories"] = additions
+    changes["_remove_categories"] = removals
+    # Categories found by the base parser are not automatically treated as
+    # changes; only explicit add/remove language changes the current design.
+    changes["required_categories"] = []
+
+    return changes
+
+
+def merge_what_if_requirements(base: dict, changes: dict) -> dict:
+    """Apply only explicitly requested changes to the current requirements."""
+    merged = copy.deepcopy(base)
+    merged_preferences = merged.setdefault("preferences", {})
+    change_preferences = changes.get("preferences") or {}
+
+    for field in ("length_ft", "width_ft", "budget_inr", "theme"):
+        value = changes.get(field)
+        if value is not None:
+            merged[field] = value
+
+    for field in ("color", "water_efficiency_keyword"):
+        value = change_preferences.get(field)
+        if value is not None:
+            merged_preferences[field] = value
+
+    feature_changes = change_preferences.get("feature_keywords") or []
+    if feature_changes:
+        merged_preferences["feature_keywords"] = list(
+            dict.fromkeys(
+                (merged_preferences.get("feature_keywords") or []) + feature_changes
+            )
+        )
+
+    categories = list(merged.get("required_categories") or [])
+
+    for category in changes.get("_remove_categories") or []:
+        if category == "Smart Toilet":
+            categories = [
+                c for c in categories if c not in ("Smart Toilet", "Toilet")
+            ]
+        elif category in categories:
+            categories.remove(category)
+
+    for category in changes.get("_add_categories") or []:
+        if category not in categories:
+            categories.append(category)
+
+    # Keep Smart Toilet distinct from generic Toilet.
+    if "Smart Toilet" in categories and "Toilet" in categories:
+        categories.remove("Toilet")
+
+    merged["required_categories"] = categories
+    return merged
+
+
+def run_what_if(
+    base_requirements: dict,
+    user_text: str,
+    products_df: pd.DataFrame,
+    demo_mode: bool = False,
+) -> dict:
+    """Apply a What-If change to the current design and rerun the same engine."""
+    if not isinstance(user_text, str) or not user_text.strip():
+        return {"stage": "empty_what_if"}
+
+    try:
+        if demo_mode:
+            changes = parse_demo_changes(user_text)
+        else:
+            changes = parse_requirements(user_text)
+
+        merged_requirements = merge_what_if_requirements(base_requirements, changes)
+        clean_requirements = validate_requirements(merged_requirements)
+    except LLMConfigurationError as exc:
+        return {"stage": "llm_config_error", "error": str(exc)}
+    except LLMRequestError as exc:
+        return {"stage": "llm_request_error", "error": str(exc)}
+    except LLMResponseValidationError as exc:
+        return {"stage": "llm_response_error", "error": str(exc)}
+    except LLMParserError as exc:
+        return {"stage": "llm_response_error", "error": str(exc)}
+    except RequirementsValidationError as exc:
+        return {"stage": "validation_error", "error": str(exc)}
+
+    completeness = check_requirements_completeness(clean_requirements)
+    if not completeness["valid"]:
+        return {
+            "stage": "incomplete",
+            "clean_requirements": clean_requirements,
+            "completeness": completeness,
+        }
+
+    try:
+        recommendation_args = requirements_to_recommendation_args(clean_requirements)
+        engine_result = recommend_products(
+            products_df=products_df, **recommendation_args
+        )
+    except RequirementsValidationError as exc:
+        return {"stage": "adapter_error", "error": str(exc)}
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "stage": "engine_error",
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+
+    return {
+        "stage": "success",
+        "clean_requirements": clean_requirements,
+        "engine_result": engine_result,
+    }
+
+
+def _render_what_if_result(result: dict) -> None:
+    """Render a redesign result without nesting another What-If control."""
+    if result["stage"] == "empty_what_if":
+        st.warning("Please describe what you would like to change.")
+        return
+
+    if result["stage"] == "incomplete":
+        _render_parsed_requirements(result["clean_requirements"])
+        _render_missing_fields(result["completeness"])
+        return
+
+    if result["stage"] != "success":
+        st.error(
+            result.get("error", "The redesign could not be completed. Please try again.")
+        )
+        return
+
+    _render_parsed_requirements(result["clean_requirements"])
+    engine_result = result["engine_result"]
+
+    if engine_result["status"] == "ok":
+        st.success(engine_result["message"])
+        st.markdown("## Updated KOHLER recommendations")
+        for i, bundle in enumerate(engine_result["bundles"], start=1):
+            _render_bundle(i, bundle, result["clean_requirements"])
+    elif engine_result["status"] in ("no_valid_bundles", "missing_categories"):
+        st.warning(engine_result["message"])
+    else:
+        st.error(
+            f"Unexpected engine status '{engine_result['status']}': "
+            f"{engine_result['message']}"
+        )
+
+
+def _render_what_if_controls(
+    base_requirements: dict, products_df: pd.DataFrame
+) -> None:
+    """Show the optional What-If redesign control after the initial design."""
+    st.divider()
+    st.markdown("## Want to redesign it?")
+    st.caption(
+        "Describe a change to your current design. Existing dimensions and "
+        "requirements are kept unless you explicitly change them."
+    )
+
+    what_if_text = st.text_area(
+        "What would you like to change?",
+        placeholder=(
+            "Example: Make it more luxurious, change to a white theme, "
+            "and increase the budget to ₹2 lakh."
+        ),
+        height=110,
+        key="what_if_text",
+    )
+
+    if st.button("Redesign Bathroom", type="secondary", key="redesign_button"):
+        with st.spinner("Updating your design..."):
+            redesign_result = run_what_if(
+                base_requirements,
+                what_if_text,
+                products_df,
+                demo_mode=DEMO_MODE,
+            )
+        st.session_state["what_if_result"] = redesign_result
+
+    if "what_if_result" in st.session_state:
+        st.markdown("### Redesigned bathroom")
+        _render_what_if_result(st.session_state["what_if_result"])
+
+
 # ----------------------------------------------------------------------
 # Small display helpers
 # ----------------------------------------------------------------------
@@ -316,25 +542,27 @@ def _render_layout(bundle: dict, clean_requirements: dict) -> None:
         "Toilet": (120, 75),
         "Smart Toilet": (120, 75),
         "Washbasin": (125, 60),
-        "Faucet": (85, 45),
         "Shower": (125, 95),
         "Vanity": (150, 65),
     }
 
     # Stable positions make the demo easy to understand while the room itself
-    # scales with the requested dimensions.
+    # scales with the requested dimensions. A faucet is attached to the
+    # washbasin instead of occupying separate floor space.
     preferred_positions = {
         "Shower": (0.18, 0.23),
         "Toilet": (0.68, 0.25),
         "Smart Toilet": (0.68, 0.25),
         "Vanity": (0.18, 0.70),
         "Washbasin": (0.18, 0.70),
-        "Faucet": (0.50, 0.70),
     }
 
     placed = set()
     fixtures = []
+    has_washbasin = "Washbasin" in categories
     for category in categories:
+        if category == "Faucet" and has_washbasin:
+            continue
         if category in placed:
             continue
         placed.add(category)
@@ -351,8 +579,17 @@ def _render_layout(bundle: dict, clean_requirements: dict) -> None:
         label = html.escape(category)
         fixture_svg.append(
             f'<rect x="{x:.1f}" y="{y:.1f}" width="{fw}" height="{fh}" rx="10" fill="none" stroke="currentColor" stroke-width="2"/>'
-            f'<text x="{x + fw / 2:.1f}" y="{y + fh / 2 + 5:.1f}" text-anchor="middle" font-size="14">{label}</text>'
+            f'<text x="{x + fw / 2:.1f}" y="{y + fh / 2 + 5:.1f}" text-anchor="middle" font-size="14" fill="currentColor">{label}</text>'
         )
+
+        if category == "Washbasin" and "Faucet" in categories:
+            faucet_w, faucet_h = 50, 22
+            faucet_x = x + (fw - faucet_w) / 2
+            faucet_y = y - faucet_h - 8
+            fixture_svg.append(
+                f'<rect x="{faucet_x:.1f}" y="{faucet_y:.1f}" width="{faucet_w}" height="{faucet_h}" rx="7" fill="none" stroke="currentColor" stroke-width="2"/>'
+                f'<text x="{faucet_x + faucet_w / 2:.1f}" y="{faucet_y + faucet_h / 2 + 4:.1f}" text-anchor="middle" font-size="10" fill="currentColor">Faucet</text>'
+            )
 
     svg = f"""
     <div style="margin: 0.5rem 0 1.25rem 0;">
@@ -360,8 +597,8 @@ def _render_layout(bundle: dict, clean_requirements: dict) -> None:
       <svg viewBox="0 0 {canvas_w} {canvas_h}" width="100%" role="img" aria-label="Conceptual bathroom layout">
         <rect x="{pad}" y="{pad}" width="{room_w}" height="{room_h}" fill="none" stroke="currentColor" stroke-width="3"/>
         {''.join(fixture_svg)}
-        <text x="{canvas_w / 2}" y="25" text-anchor="middle" font-size="13">{float(length_ft):g} ft</text>
-        <text x="18" y="{canvas_h / 2}" text-anchor="middle" font-size="13" transform="rotate(-90 18 {canvas_h / 2})">{float(width_ft):g} ft</text>
+        <text x="{canvas_w / 2}" y="25" text-anchor="middle" font-size="13" fill="currentColor">{float(length_ft):g} ft</text>
+        <text x="18" y="{canvas_h / 2}" text-anchor="middle" font-size="13" fill="currentColor" transform="rotate(-90 18 {canvas_h / 2})">{float(width_ft):g} ft</text>
       </svg>
       <div style="font-size: 0.8rem; opacity: 0.7; margin-top: 0.2rem;">Conceptual visualization only — not an architectural or installation plan.</div>
     </div>
@@ -584,7 +821,17 @@ def main() -> None:
 
     if "pipeline_result" in st.session_state:
         st.divider()
-        render_result(st.session_state["pipeline_result"])
+        initial_result = st.session_state["pipeline_result"]
+        render_result(initial_result)
+
+        if (
+            initial_result.get("stage") == "success"
+            and initial_result.get("engine_result", {}).get("status") == "ok"
+        ):
+            _render_what_if_controls(
+                initial_result["clean_requirements"],
+                get_catalog(),
+            )
 
 
 
