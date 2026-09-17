@@ -293,6 +293,82 @@ def _fmt_inr(value) -> str:
         return str(value)
 
 
+def _render_layout(bundle: dict, clean_requirements: dict) -> None:
+    """Render a simple conceptual top-down layout for one recommended bundle."""
+    length_ft = clean_requirements.get("length_ft")
+    width_ft = clean_requirements.get("width_ft")
+    if not length_ft or not width_ft:
+        return
+
+    products = bundle.get("products") or []
+    categories = [str(p.get("category", "")).strip() for p in products]
+    if not categories:
+        return
+
+    # The drawing is intentionally conceptual rather than architectural: the
+    # recommendation engine does not provide door/plumbing/clearance geometry.
+    canvas_w, canvas_h = 760, 460
+    pad = 45
+    room_w = canvas_w - 2 * pad
+    room_h = canvas_h - 2 * pad
+
+    fixture_specs = {
+        "Toilet": (120, 75),
+        "Smart Toilet": (120, 75),
+        "Washbasin": (125, 60),
+        "Faucet": (85, 45),
+        "Shower": (125, 95),
+        "Vanity": (150, 65),
+    }
+
+    # Stable positions make the demo easy to understand while the room itself
+    # scales with the requested dimensions.
+    preferred_positions = {
+        "Shower": (0.18, 0.23),
+        "Toilet": (0.68, 0.25),
+        "Smart Toilet": (0.68, 0.25),
+        "Vanity": (0.18, 0.70),
+        "Washbasin": (0.18, 0.70),
+        "Faucet": (0.50, 0.70),
+    }
+
+    placed = set()
+    fixtures = []
+    for category in categories:
+        if category in placed:
+            continue
+        placed.add(category)
+        fw, fh = fixture_specs.get(category, (120, 60))
+        px, py = preferred_positions.get(category, (0.50, 0.50))
+        x = pad + px * room_w - fw / 2
+        y = pad + py * room_h - fh / 2
+        x = max(pad + 8, min(x, canvas_w - pad - fw - 8))
+        y = max(pad + 8, min(y, canvas_h - pad - fh - 8))
+        fixtures.append((category, x, y, fw, fh))
+
+    fixture_svg = []
+    for category, x, y, fw, fh in fixtures:
+        label = html.escape(category)
+        fixture_svg.append(
+            f'<rect x="{x:.1f}" y="{y:.1f}" width="{fw}" height="{fh}" rx="10" fill="none" stroke="currentColor" stroke-width="2"/>'
+            f'<text x="{x + fw / 2:.1f}" y="{y + fh / 2 + 5:.1f}" text-anchor="middle" font-size="14">{label}</text>'
+        )
+
+    svg = f"""
+    <div style="margin: 0.5rem 0 1.25rem 0;">
+      <div style="font-weight: 600; margin-bottom: 0.35rem;">Conceptual bathroom layout</div>
+      <svg viewBox="0 0 {canvas_w} {canvas_h}" width="100%" role="img" aria-label="Conceptual bathroom layout">
+        <rect x="{pad}" y="{pad}" width="{room_w}" height="{room_h}" fill="none" stroke="currentColor" stroke-width="3"/>
+        {''.join(fixture_svg)}
+        <text x="{canvas_w / 2}" y="25" text-anchor="middle" font-size="13">{float(length_ft):g} ft</text>
+        <text x="18" y="{canvas_h / 2}" text-anchor="middle" font-size="13" transform="rotate(-90 18 {canvas_h / 2})">{float(width_ft):g} ft</text>
+      </svg>
+      <div style="font-size: 0.8rem; opacity: 0.7; margin-top: 0.2rem;">Conceptual visualization only — not an architectural or installation plan.</div>
+    </div>
+    """
+    st.markdown(svg, unsafe_allow_html=True)
+
+
 def _render_product(product: dict) -> None:
     """Render a compact product card using only catalog data."""
     name = html.escape(_fmt(product.get("product_name", "Unnamed product")))
@@ -336,7 +412,7 @@ def _render_product(product: dict) -> None:
             st.link_button("View on KOHLER India", source_url)
 
 
-def _render_bundle(index: int, bundle: dict) -> None:
+def _render_bundle(index: int, bundle: dict, clean_requirements: dict) -> None:
     """Render one recommendation bundle as a compact card."""
     st.markdown(f"## Bundle {index}")
 
@@ -352,6 +428,8 @@ def _render_bundle(index: int, bundle: dict) -> None:
         f"Spatial fit {breakdown['spatial_score']:.2f} · "
         f"Features {breakdown['feature_score']:.2f}"
     )
+
+    _render_layout(bundle, clean_requirements)
 
     product_columns = st.columns(len(bundle["products"]))
     for column, product in zip(product_columns, bundle["products"]):
@@ -446,7 +524,7 @@ def render_result(result: dict) -> None:
             st.success(engine_result["message"])
             st.markdown("## Your KOHLER recommendations")
             for i, bundle in enumerate(engine_result["bundles"], start=1):
-                _render_bundle(i, bundle)
+                _render_bundle(i, bundle, result["clean_requirements"])
         elif engine_result["status"] in ("no_valid_bundles", "missing_categories"):
             st.warning(engine_result["message"])
         else:  # pragma: no cover - defensive, engine doesn't currently return other statuses
