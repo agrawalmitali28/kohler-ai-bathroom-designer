@@ -520,91 +520,482 @@ def _fmt_inr(value) -> str:
 
 
 def _render_layout(bundle: dict, clean_requirements: dict) -> None:
-    """Render a simple conceptual top-down layout for one recommended bundle."""
+    """
+    Render a polished conceptual bathroom visualisation using local SVG only.
+
+    This is intentionally a visual planning aid, not an architectural drawing.
+    No recommendation, catalog, parser, or validation logic is changed here.
+    """
     length_ft = clean_requirements.get("length_ft")
     width_ft = clean_requirements.get("width_ft")
-    if not length_ft or not width_ft:
+
+    if length_ft is None or width_ft is None:
+        st.info("Bathroom dimensions are required to render the layout.")
         return
 
-    products = bundle.get("products") or []
-    categories = [str(p.get("category", "")).strip() for p in products]
-    if not categories:
-        return
+    products = bundle.get("products", [])
+    categories = []
 
-    # The drawing is intentionally conceptual rather than architectural: the
-    # recommendation engine does not provide door/plumbing/clearance geometry.
-    canvas_w, canvas_h = 760, 460
-    pad = 45
-    room_w = canvas_w - 2 * pad
-    room_h = canvas_h - 2 * pad
+    for product in products:
+        category = str(product.get("category", "")).strip()
+        if category and category not in categories:
+            categories.append(category)
 
-    fixture_specs = {
-        "Toilet": (120, 75),
-        "Smart Toilet": (120, 75),
-        "Washbasin": (125, 60),
-        "Shower": (125, 95),
-        "Vanity": (150, 65),
-    }
+    canvas_w = 900
+    canvas_h = 560
 
-    # Stable positions make the demo easy to understand while the room itself
-    # scales with the requested dimensions. A faucet is attached to the
-    # washbasin instead of occupying separate floor space.
-    preferred_positions = {
-        "Shower": (0.18, 0.23),
-        "Toilet": (0.68, 0.25),
-        "Smart Toilet": (0.68, 0.25),
-        "Vanity": (0.18, 0.70),
-        "Washbasin": (0.18, 0.70),
-    }
+    room_x = 95
+    room_y = 70
+    room_w = 710
+    room_h = 400
 
-    placed = set()
-    fixtures = []
-    has_washbasin = "Washbasin" in categories
-    for category in categories:
-        if category == "Faucet" and has_washbasin:
-            continue
-        if category in placed:
-            continue
-        placed.add(category)
-        fw, fh = fixture_specs.get(category, (120, 60))
-        px, py = preferred_positions.get(category, (0.50, 0.50))
-        x = pad + px * room_w - fw / 2
-        y = pad + py * room_h - fh / 2
-        x = max(pad + 8, min(x, canvas_w - pad - fw - 8))
-        y = max(pad + 8, min(y, canvas_h - pad - fh - 8))
-        fixtures.append((category, x, y, fw, fh))
+    def esc(value):
+        return html.escape(str(value))
 
-    fixture_svg = []
-    for category, x, y, fw, fh in fixtures:
-        label = html.escape(category)
-        fixture_svg.append(
-            f'<rect x="{x:.1f}" y="{y:.1f}" width="{fw}" height="{fh}" rx="10" fill="none" stroke="currentColor" stroke-width="2"/>'
-            f'<text x="{x + fw / 2:.1f}" y="{y + fh / 2 + 5:.1f}" text-anchor="middle" font-size="14" fill="currentColor">{label}</text>'
+    def label(text, x, y, size=14, weight="600", anchor="middle"):
+        return (
+            f'<text x="{x}" y="{y}" font-size="{size}" '
+            f'font-weight="{weight}" text-anchor="{anchor}" '
+            f'fill="currentColor">{esc(text)}</text>'
         )
 
-        if category == "Washbasin" and "Faucet" in categories:
-            faucet_w, faucet_h = 50, 22
-            faucet_x = x + (fw - faucet_w) / 2
-            faucet_y = y - faucet_h - 8
-            fixture_svg.append(
-                f'<rect x="{faucet_x:.1f}" y="{faucet_y:.1f}" width="{faucet_w}" height="{faucet_h}" rx="7" fill="none" stroke="currentColor" stroke-width="2"/>'
-                f'<text x="{faucet_x + faucet_w / 2:.1f}" y="{faucet_y + faucet_h / 2 + 4:.1f}" text-anchor="middle" font-size="10" fill="currentColor">Faucet</text>'
+    def line(x1, y1, x2, y2, width=1.5, opacity=0.45):
+        return (
+            f'<line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" '
+            f'stroke="currentColor" stroke-width="{width}" '
+            f'stroke-opacity="{opacity}" />'
+        )
+
+    def rect(x, y, w, h, rx=12, fill="none", fill_opacity=1,
+             stroke="currentColor", stroke_width=1.5, stroke_opacity=0.6):
+        return (
+            f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="{rx}" '
+            f'fill="{fill}" fill-opacity="{fill_opacity}" '
+            f'stroke="{stroke}" stroke-width="{stroke_width}" '
+            f'stroke-opacity="{stroke_opacity}" />'
+        )
+
+    svg = []
+
+    # -----------------------------
+    # SVG background
+    # -----------------------------
+    svg.append(
+        f'<svg viewBox="0 0 {canvas_w} {canvas_h}" '
+        f'width="100%" role="img" '
+        f'aria-label="Conceptual KOHLER bathroom layout">'
+    )
+
+    # Subtle background
+    svg.append(
+        '<rect x="0" y="0" width="900" height="560" '
+        'rx="22" fill="currentColor" fill-opacity="0.025"/>'
+    )
+
+    # Header
+    svg.append(label("Bathroom Layout", 95, 34, 20, "700", "start"))
+    svg.append(
+        label(
+            f"{length_ft:g} × {width_ft:g} ft • Conceptual visualisation",
+            805,
+            34,
+            13,
+            "500",
+            "end",
+        )
+    )
+
+    # -----------------------------
+    # Room shell
+    # -----------------------------
+    svg.append(
+        rect(
+            room_x,
+            room_y,
+            room_w,
+            room_h,
+            rx=18,
+            fill="currentColor",
+            fill_opacity=0.035,
+            stroke_width=3,
+            stroke_opacity=0.55,
+        )
+    )
+
+    # Floor grid
+    grid_step = 40
+
+    for x in range(room_x + grid_step, room_x + room_w, grid_step):
+        svg.append(line(x, room_y, x, room_y + room_h, 0.8, 0.10))
+
+    for y in range(room_y + grid_step, room_y + room_h, grid_step):
+        svg.append(line(room_x, y, room_x + room_w, y, 0.8, 0.10))
+
+    # -----------------------------
+    # Dimension indicators
+    # -----------------------------
+    dim_y = room_y + room_h + 34
+
+    svg.append(line(room_x, dim_y, room_x + room_w, dim_y, 1.5, 0.55))
+    svg.append(line(room_x, dim_y - 7, room_x, dim_y + 7, 1.5, 0.55))
+    svg.append(
+        line(
+            room_x + room_w,
+            dim_y - 7,
+            room_x + room_w,
+            dim_y + 7,
+            1.5,
+            0.55,
+        )
+    )
+    svg.append(label(f"{width_ft:g} ft", room_x + room_w / 2, dim_y + 22, 12))
+
+    dim_x = room_x - 34
+
+    svg.append(line(dim_x, room_y, dim_x, room_y + room_h, 1.5, 0.55))
+    svg.append(line(dim_x - 7, room_y, dim_x + 7, room_y, 1.5, 0.55))
+    svg.append(
+        line(
+            dim_x - 7,
+            room_y + room_h,
+            dim_x + 7,
+            room_y + room_h,
+            1.5,
+            0.55,
+        )
+    )
+
+    # Rotated length label
+    svg.append(
+        f'<text x="{dim_x - 12}" y="{room_y + room_h / 2}" '
+        f'font-size="12" font-weight="600" text-anchor="middle" '
+        f'fill="currentColor" '
+        f'transform="rotate(-90 {dim_x - 12} {room_y + room_h / 2})">'
+        f'{esc(f"{length_ft:g} ft")}</text>'
+    )
+
+    # -----------------------------
+    # Fixture positions
+    # -----------------------------
+    positions = {
+        "Shower": (room_x + 55, room_y + 45),
+        "Toilet": (room_x + 490, room_y + 70),
+        "Smart Toilet": (room_x + 490, room_y + 70),
+        "Washbasin": (room_x + 70, room_y + 275),
+        "Vanity": (room_x + 300, room_y + 275),
+    }
+
+    drawn_washbasin = False
+    drawn_vanity = False
+
+    # -----------------------------
+    # Shower
+    # -----------------------------
+    if "Shower" in categories:
+        x, y = positions["Shower"]
+        w, h = 190, 145
+
+        svg.append(
+            rect(
+                x,
+                y,
+                w,
+                h,
+                rx=14,
+                fill="currentColor",
+                fill_opacity=0.07,
+                stroke_width=2,
+                stroke_opacity=0.55,
+            )
+        )
+
+        # Glass partition
+        svg.append(line(x + w - 22, y + 10, x + w - 22, y + h - 10, 2, 0.35))
+
+        # Shower head
+        svg.append(
+            f'<circle cx="{x + 48}" cy="{y + 45}" r="11" '
+            f'fill="none" stroke="currentColor" stroke-width="2" '
+            f'stroke-opacity="0.65"/>'
+        )
+
+        svg.append(line(x + 48, y + 56, x + 48, y + 80, 2, 0.55))
+
+        # Water lines
+        for dx in (-8, 0, 8):
+            svg.append(
+                line(
+                    x + 48 + dx,
+                    y + 81,
+                    x + 48 + dx,
+                    y + 99,
+                    1.2,
+                    0.35,
+                )
             )
 
-    svg = f"""
-    <div style="margin: 0.5rem 0 1.25rem 0;">
-      <div style="font-weight: 600; margin-bottom: 0.35rem;">Conceptual bathroom layout</div>
-      <svg viewBox="0 0 {canvas_w} {canvas_h}" width="100%" role="img" aria-label="Conceptual bathroom layout">
-        <rect x="{pad}" y="{pad}" width="{room_w}" height="{room_h}" fill="none" stroke="currentColor" stroke-width="3"/>
-        {''.join(fixture_svg)}
-        <text x="{canvas_w / 2}" y="25" text-anchor="middle" font-size="13" fill="currentColor">{float(length_ft):g} ft</text>
-        <text x="18" y="{canvas_h / 2}" text-anchor="middle" font-size="13" fill="currentColor" transform="rotate(-90 18 {canvas_h / 2})">{float(width_ft):g} ft</text>
-      </svg>
-      <div style="font-size: 0.8rem; opacity: 0.7; margin-top: 0.2rem;">Conceptual visualization only — not an architectural or installation plan.</div>
-    </div>
-    """
-    st.markdown(svg, unsafe_allow_html=True)
+        svg.append(label("SHOWER", x + w / 2, y + h - 22, 13, "700"))
 
+    # -----------------------------
+    # Toilet / Smart Toilet
+    # -----------------------------
+    toilet_category = None
+
+    if "Smart Toilet" in categories:
+        toilet_category = "Smart Toilet"
+    elif "Toilet" in categories:
+        toilet_category = "Toilet"
+
+    if toilet_category:
+        x, y = positions[toilet_category]
+
+        # Tank
+        svg.append(
+            rect(
+                x + 28,
+                y,
+                72,
+                32,
+                rx=7,
+                fill="currentColor",
+                fill_opacity=0.07,
+                stroke_width=1.8,
+                stroke_opacity=0.55,
+            )
+        )
+
+        # Bowl
+        svg.append(
+            f'<ellipse cx="{x + 64}" cy="{y + 66}" rx="48" ry="34" '
+            f'fill="currentColor" fill-opacity="0.07" '
+            f'stroke="currentColor" stroke-width="2" stroke-opacity="0.55"/>'
+        )
+
+        # Inner bowl
+        svg.append(
+            f'<ellipse cx="{x + 64}" cy="{y + 66}" rx="28" ry="17" '
+            f'fill="none" stroke="currentColor" '
+            f'stroke-width="1.5" stroke-opacity="0.35"/>'
+        )
+
+        # Seat/base
+        svg.append(
+            rect(
+                x + 34,
+                y + 88,
+                60,
+                18,
+                rx=8,
+                fill="currentColor",
+                fill_opacity=0.045,
+                stroke_width=1.5,
+                stroke_opacity=0.40,
+            )
+        )
+
+        toilet_label = "SMART TOILET" if toilet_category == "Smart Toilet" else "TOILET"
+        svg.append(label(toilet_label, x + 64, y + 132, 13, "700"))
+
+    # -----------------------------
+    # Washbasin
+    # -----------------------------
+    if "Washbasin" in categories:
+        drawn_washbasin = True
+        x, y = positions["Washbasin"]
+        w, h = 190, 105
+
+        # Counter
+        svg.append(
+            rect(
+                x,
+                y,
+                w,
+                h,
+                rx=13,
+                fill="currentColor",
+                fill_opacity=0.07,
+                stroke_width=2,
+                stroke_opacity=0.55,
+            )
+        )
+
+        # Basin
+        svg.append(
+            f'<ellipse cx="{x + w / 2}" cy="{y + 54}" rx="58" ry="27" '
+            f'fill="none" stroke="currentColor" '
+            f'stroke-width="2" stroke-opacity="0.50"/>'
+        )
+
+        # Drain
+        svg.append(
+            f'<circle cx="{x + w / 2}" cy="{y + 55}" r="4" '
+            f'fill="currentColor" fill-opacity="0.45"/>'
+        )
+
+        # Faucet attached to basin
+        faucet_x = x + w / 2
+        faucet_base_y = y + 25
+
+        svg.append(line(faucet_x, faucet_base_y, faucet_x, faucet_base_y - 22, 3, 0.65))
+
+        svg.append(
+            f'<path d="M {faucet_x} {faucet_base_y - 22} '
+            f'Q {faucet_x + 18} {faucet_base_y - 42} '
+            f'{faucet_x + 18} {faucet_base_y - 20}" '
+            f'fill="none" stroke="currentColor" '
+            f'stroke-width="3" stroke-linecap="round" '
+            f'stroke-opacity="0.65"/>'
+        )
+
+        # Water drop
+        svg.append(
+            f'<path d="M {faucet_x + 18} {faucet_base_y - 18} '
+            f'c -4 7 -4 11 0 15 c 4 -4 4 -8 0 -15" '
+            f'fill="currentColor" fill-opacity="0.35"/>'
+        )
+
+        svg.append(label("WASHBASIN", x + w / 2, y + h + 22, 13, "700"))
+
+    # -----------------------------
+    # Vanity
+    # -----------------------------
+    if "Vanity" in categories:
+        drawn_vanity = True
+        x, y = positions["Vanity"]
+        w, h = 190, 105
+
+        svg.append(
+            rect(
+                x,
+                y,
+                w,
+                h,
+                rx=13,
+                fill="currentColor",
+                fill_opacity=0.07,
+                stroke_width=2,
+                stroke_opacity=0.55,
+            )
+        )
+
+        # Cabinet divisions
+        svg.append(line(x + w / 2, y + 12, x + w / 2, y + h - 10, 1.2, 0.30))
+
+        # Handles
+        svg.append(line(x + 70, y + 53, x + 80, y + 53, 2, 0.45))
+        svg.append(line(x + 110, y + 53, x + 120, y + 53, 2, 0.45))
+
+        # Countertop basin suggestion
+        svg.append(
+            f'<ellipse cx="{x + w / 2}" cy="{y + 25}" rx="48" ry="12" '
+            f'fill="none" stroke="currentColor" '
+            f'stroke-width="1.5" stroke-opacity="0.35"/>'
+        )
+
+        svg.append(label("VANITY", x + w / 2, y + h + 22, 13, "700"))
+
+    # -----------------------------
+    # Faucet without a washbasin
+    # -----------------------------
+    if "Faucet" in categories and not drawn_washbasin and not drawn_vanity:
+        x = room_x + 270
+        y = room_y + 205
+
+        svg.append(
+            rect(
+                x,
+                y,
+                150,
+                55,
+                rx=12,
+                fill="currentColor",
+                fill_opacity=0.045,
+                stroke_width=1.5,
+                stroke_opacity=0.40,
+            )
+        )
+
+        svg.append(
+            f'<path d="M {x + 65} {y + 38} '
+            f'Q {x + 85} {y + 8} {x + 105} {y + 30}" '
+            f'fill="none" stroke="currentColor" '
+            f'stroke-width="3" stroke-linecap="round" '
+            f'stroke-opacity="0.65"/>'
+        )
+
+        svg.append(label("FAUCET", x + 75, y + 78, 12, "700"))
+
+    # -----------------------------
+    # Generic fallback for any
+    # unrecognised category
+    # -----------------------------
+    known_categories = {
+        "Shower",
+        "Toilet",
+        "Smart Toilet",
+        "Washbasin",
+        "Vanity",
+        "Faucet",
+    }
+
+    unknown_categories = [c for c in categories if c not in known_categories]
+
+    if unknown_categories:
+        fallback_x = room_x + 490
+        fallback_y = room_y + 230
+
+        for index, category in enumerate(unknown_categories):
+            y = fallback_y + index * 75
+
+            svg.append(
+                rect(
+                    fallback_x,
+                    y,
+                    150,
+                    50,
+                    rx=10,
+                    fill="currentColor",
+                    fill_opacity=0.05,
+                    stroke_width=1.5,
+                    stroke_opacity=0.40,
+                )
+            )
+
+            svg.append(label(category.upper(), fallback_x + 75, y + 31, 11, "700"))
+
+    # -----------------------------
+    # Entry indicator
+    # -----------------------------
+    entry_x = room_x + room_w / 2 - 45
+
+    svg.append(
+        f'<rect x="{entry_x}" y="{room_y + room_h - 4}" '
+        f'width="90" height="12" rx="6" '
+        f'fill="currentColor" fill-opacity="0.12"/>'
+    )
+
+    svg.append(label("ENTRY", room_x + room_w / 2, room_y + room_h + 1, 10, "600"))
+
+    # -----------------------------
+    # Legend / disclaimer
+    # -----------------------------
+    svg.append(
+        label(
+            "Conceptual placement • not architectural scale",
+            805,
+            530,
+            11,
+            "500",
+            "end",
+        )
+    )
+
+    svg.append("</svg>")
+
+    st.markdown(
+        "".join(svg),
+        unsafe_allow_html=True,
+    )
 
 def _render_product(product: dict) -> None:
     """Render a compact product card using only catalog data."""
