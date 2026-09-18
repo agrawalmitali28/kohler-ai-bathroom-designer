@@ -998,47 +998,117 @@ def _render_layout(bundle: dict, clean_requirements: dict) -> None:
     )
 
 def _render_product(product: dict) -> None:
-    """Render a compact product card using only catalog data."""
+    """Render a polished product card using only catalog data."""
     name = html.escape(_fmt(product.get("product_name", "Unnamed product")))
     category = html.escape(_fmt(product.get("category")))
     collection = html.escape(_fmt(product.get("collection")))
     price = _fmt_inr(product.get("price"))
+    mrp = product.get("mrp")
     color = html.escape(_fmt(product.get("color")))
     finish = html.escape(_fmt(product.get("finish")))
     style = html.escape(_fmt(product.get("style")))
+    water_efficiency = html.escape(_fmt(product.get("water_efficiency")))
     source_url = product.get("source_url")
+
+    # Calculate displayed savings when both price and MRP are available.
+    savings_text = None
+    try:
+        price_value = float(product.get("price"))
+        mrp_value = float(product.get("mrp"))
+        if mrp_value > price_value:
+            savings_text = f"Save {_fmt_inr(mrp_value - price_value)}"
+    except (TypeError, ValueError):
+        pass
 
     with st.container(border=True):
         st.caption(category)
+
         st.markdown(f"### {name}")
-        st.markdown(f"**{price}**")
-        st.write(f"Collection: {collection}")
-        st.write(f"Finish: {finish} · Color: {color}")
-        st.write(f"Style: {style}")
+
+        price_col, match_col = st.columns([2, 1])
+
+        with price_col:
+            st.markdown(f"**{price}**")
+            if savings_text:
+                st.caption(savings_text)
+
+        with match_col:
+            st.caption("KOHLER catalog")
+            st.write(collection)
+
+        st.write(
+            f"**Finish:** {finish}  ·  "
+            f"**Color:** {color}"
+        )
+
+        st.write(f"**Style:** {style}")
+
+        if water_efficiency != "Not specified":
+            st.write(f"**Water efficiency:** {water_efficiency}")
+
+        with st.expander("Why this product fits"):
+            st.write(
+                f"This {category.lower()} is from the **{collection}** "
+                f"collection and has a **{style.lower()}** style with "
+                f"a **{finish.lower()}** finish."
+            )
+
+            if water_efficiency != "Not specified":
+                st.write(
+                    f"Water efficiency: **{water_efficiency}**."
+                )
+
+            features = product.get("features")
+            if features is not None and not (
+                isinstance(features, float) and pd.isna(features)
+            ):
+                st.write(f"Key features: {features}")
 
         with st.expander("Product details"):
             col1, col2 = st.columns(2)
+
             with col1:
                 st.write(f"**SKU:** {_fmt(product.get('sku'))}")
                 st.write(f"**MRP:** {_fmt_inr(product.get('mrp'))}")
-                st.write(f"**Installation:** {_fmt(product.get('installation_type'))}")
-                st.write(f"**Water efficiency:** {_fmt(product.get('water_efficiency'))}")
-                st.write(f"**Flow rate:** {_fmt(product.get('flow_rate_lpm'))} LPM")
+                st.write(
+                    f"**Installation:** "
+                    f"{_fmt(product.get('installation_type'))}"
+                )
+                st.write(
+                    f"**Water efficiency:** "
+                    f"{_fmt(product.get('water_efficiency'))}"
+                )
+                st.write(
+                    f"**Flow rate:** "
+                    f"{_fmt(product.get('flow_rate_lpm'))} LPM"
+                )
+
             with col2:
                 st.write(
-                    f"**Dimensions:** {_fmt(product.get('width_in'))} × "
-                    f"{_fmt(product.get('depth_in'))} × {_fmt(product.get('height_in'))} in"
+                    f"**Dimensions:** "
+                    f"{_fmt(product.get('width_in'))} × "
+                    f"{_fmt(product.get('depth_in'))} × "
+                    f"{_fmt(product.get('height_in'))} in"
                 )
-                st.write(f"**Features:** {_fmt(product.get('features'))}")
-                st.write(f"**Smart features:** {_fmt(product.get('smart_features'))}")
+                st.write(
+                    f"**Features:** "
+                    f"{_fmt(product.get('features'))}"
+                )
+                st.write(
+                    f"**Smart features:** "
+                    f"{_fmt(product.get('smart_features'))}"
+                )
 
             description = product.get("description")
-            if description is not None and not (isinstance(description, float) and pd.isna(description)):
+            if description is not None and not (
+                isinstance(description, float) and pd.isna(description)
+            ):
                 st.write(description)
 
-        if source_url and not (isinstance(source_url, float) and pd.isna(source_url)):
+        if source_url and not (
+            isinstance(source_url, float) and pd.isna(source_url)
+        ):
             st.link_button("View on KOHLER India", source_url)
-
 
 def _render_bundle(index: int, bundle: dict, clean_requirements: dict) -> None:
     """Render one recommendation bundle as a compact card."""
