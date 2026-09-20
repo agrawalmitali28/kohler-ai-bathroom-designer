@@ -11,10 +11,9 @@
 Add the final links below before submitting the project:
 
 - 🎥 **Demo Video:** (https://www.youtube.com/watch?v=1_AfSvL3mpU)
-- 📊 Presentation [View Presentation](presentation/presentation.pdf)
-- 📄 Prompts & AI Documentation [View Prompts Documentation](prompts/prompts-documentation.pdf)
+- 📊 Presentation [presentation/presentation.pdf]
+- 📄 Prompts & AI Documentation [prompts/prompts-documentation.pdf]
 
-> Tip: If these files are uploaded to Google Drive, GitHub Releases, or another public location, make sure the sharing permissions allow the evaluators to open them.
 
 ---
 
