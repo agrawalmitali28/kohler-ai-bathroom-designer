@@ -542,7 +542,7 @@ The project's AI instructions and workflow documentation are provided separately
 **Prompts / AI Documentation PDF:**
 
 ```text
-[PASTE YOUR PROMPTS PDF LINK HERE]
+present in the prompts folder.
 ```
 
 The documentation covers:
@@ -563,7 +563,7 @@ The documentation covers:
 ### Demo Video
 
 ```text
-[PASTE YOUR DEMO VIDEO LINK HERE]
+(https://www.youtube.com/watch?v=1_AfSvL3mpU)
 ```
 
 Recommended demo flow:
@@ -584,7 +584,7 @@ Recommended demo flow:
 ### Competition Presentation
 
 ```text
-[PASTE YOUR PRESENTATION LINK HERE]
+present in the presentation folder.
 ```
 
 ---
