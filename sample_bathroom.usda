@@ -1,0 +1,57 @@
+#usda 1.0
+(
+    defaultPrim = "Bathroom"
+    metersPerUnit = 0.3048
+    upAxis = "Y"
+)
+
+def Xform "Bathroom"
+{
+    custom string roomType = "bathroom"
+    custom string roomLength = "10 ft"
+    custom string roomWidth = "7 ft"
+    custom string roomHeight = "9 ft"
+
+    def Xform "Walls"
+    {
+        def Cube "BackWall"
+        {
+            custom string componentType = "wall"
+            custom string dimensions = "7 ft x 0.5 ft x 9 ft"
+        }
+        def Cube "LeftWall"
+        {
+            custom string componentType = "wall"
+            custom string dimensions = "0.5 ft x 10 ft x 9 ft"
+        }
+        def Cube "RightWall"
+        {
+            custom string componentType = "wall"
+            custom string dimensions = "0.5 ft x 10 ft x 9 ft"
+        }
+    }
+
+    def Xform "Cabinet"
+    {
+        custom string componentType = "cabinet"
+        custom string dimensions = "4 ft x 1.5 ft x 3 ft"
+    }
+
+    def Xform "Toilet"
+    {
+        custom string componentType = "toilet"
+        custom string dimensions = "1.5 ft x 2.5 ft x 2.5 ft"
+    }
+
+    def Xform "Washbasin"
+    {
+        custom string componentType = "washbasin"
+        custom string dimensions = "2 ft x 1.5 ft x 3 ft"
+    }
+
+    def Xform "Door"
+    {
+        custom string componentType = "door"
+        custom string dimensions = "3 ft x 0.25 ft x 7 ft"
+    }
+}

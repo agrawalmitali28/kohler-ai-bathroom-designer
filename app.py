@@ -27,10 +27,14 @@ import copy
 import html
 import os
 import re
+import tempfile
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
+from src.usd_parser import parse_usd_file, USDParserError
+from src.architecture_adapter import architecture_to_requirements
 
 from src.llm_parser import (
     parse_requirements,
@@ -259,6 +263,61 @@ def run_pipeline(user_text: str, products_df: pd.DataFrame, demo_mode: bool = Fa
     try:
         engine_result = recommend_products(products_df=products_df, **recommendation_args)
     except Exception as exc:  # noqa: BLE001 - surfaced to the user below, not swallowed
+        return {
+            "stage": "engine_error",
+            "error": f"{type(exc).__name__}: {exc}",
+            "clean_requirements": clean_requirements,
+        }
+
+    return {
+        "stage": "success",
+        "raw_requirements": raw_requirements,
+        "clean_requirements": clean_requirements,
+        "engine_result": engine_result,
+    }
+
+def run_requirements_pipeline(
+    raw_requirements: dict,
+    products_df: pd.DataFrame,
+) -> dict:
+    """Run already-structured requirements through validation and recommendations."""
+
+    try:
+        clean_requirements = validate_requirements(raw_requirements)
+    except RequirementsValidationError as exc:
+        return {
+            "stage": "validation_error",
+            "error": str(exc),
+            "raw_requirements": raw_requirements,
+        }
+
+    completeness = check_requirements_completeness(clean_requirements)
+
+    if not completeness["valid"]:
+        return {
+            "stage": "incomplete",
+            "raw_requirements": raw_requirements,
+            "clean_requirements": clean_requirements,
+            "completeness": completeness,
+        }
+
+    try:
+        recommendation_args = requirements_to_recommendation_args(
+            clean_requirements
+        )
+    except RequirementsValidationError as exc:
+        return {
+            "stage": "adapter_error",
+            "error": str(exc),
+            "clean_requirements": clean_requirements,
+        }
+
+    try:
+        engine_result = recommend_products(
+            products_df=products_df,
+            **recommendation_args,
+        )
+    except Exception as exc:
         return {
             "stage": "engine_error",
             "error": f"{type(exc).__name__}: {exc}",
@@ -1236,6 +1295,95 @@ def render_result(result: dict) -> None:
 # Streamlit page
 # ----------------------------------------------------------------------
 
+ARCHITECTURE_CATEGORY_OPTIONS = [
+    "Toilet",
+    "Washbasin",
+    "Faucet",
+    "Shower",
+    "Vanity",
+    "Smart Toilet",
+]
+
+
+def _render_category_card_selector() -> list[str]:
+    """Let the user select the KOHLER product categories they want."""
+    st.markdown("### What would you like to include?")
+    st.caption("Choose one or more KOHLER product categories.")
+
+    selected_categories = st.pills(
+        "Product categories",
+        ARCHITECTURE_CATEGORY_OPTIONS,
+        selection_mode="multi",
+        key="architecture_selected_categories",
+        label_visibility="collapsed",
+    )
+
+    if selected_categories:
+        st.caption(f"Selected: {' · '.join(selected_categories)}")
+    else:
+        st.caption("Select at least one product category.")
+
+    return selected_categories
+
+def _render_architecture_data(architecture_data: dict) -> None:
+    """Display the bathroom information extracted from a USD/USDZ file."""
+    st.markdown("### Detected Bathroom Architecture")
+
+    room = architecture_data.get("room", {})
+    components = architecture_data.get("components", [])
+
+    length = room.get("length_ft")
+    width = room.get("width_ft")
+    height = room.get("height_ft")
+
+    col1, col2, col3 = st.columns(3)
+
+    col1.metric(
+        "Room length",
+        f"{length:g} ft" if length is not None else "Not detected",
+    )
+
+    col2.metric(
+        "Room width",
+        f"{width:g} ft" if width is not None else "Not detected",
+    )
+
+    col3.metric(
+        "Room height",
+        f"{height:g} ft" if height is not None else "Not detected",
+    )
+
+    st.markdown("#### Detected Components")
+
+    if not components:
+        st.info("No recognized room components were found in the file.")
+        return
+
+    for row_start in range(0, len(components), 3):
+        row_components = components[row_start:row_start + 3]
+
+        columns = st.columns(3)
+
+        for column, component in zip(columns, row_components):
+            with column:
+                name = component.get("name", "Unnamed component")
+                component_type = component.get("type", "Unknown")
+                dimensions = component.get("dimensions")
+
+                if dimensions:
+                    dimension_text = (
+                        f"{dimensions['width_ft']:g} × "
+                        f"{dimensions['depth_ft']:g} × "
+                        f"{dimensions['height_ft']:g} ft"
+                    )
+                else:
+                    dimension_text = "Dimensions not detected"
+
+                with st.container(border=True):
+                    st.markdown(f"**{name}**")
+                    st.caption(component_type.title())
+                    st.write(f"Dimensions: **{dimension_text}**")
+
 def main() -> None:
     st.set_page_config(
         page_title="KOHLER AI Bathroom Designer",
@@ -1267,18 +1415,124 @@ def main() -> None:
             "validation, adapter, catalog, and recommendation pipeline."
         )
 
-    user_text = st.text_area(
-        "Describe your bathroom",
-        placeholder=EXAMPLE_REQUEST,
-        height=140,
-        help="Include bathroom dimensions, budget, preferred style/finish, and the products you need.",
+        input_mode = st.radio(
+        "How do you want to provide your bathroom?",
+        ["Describe it", "Upload USD / USDZ"],
+        horizontal=True,
     )
 
-    if st.button("Design My Bathroom", type="primary"):
-        products_df = get_catalog()
-        with st.spinner("Understanding your requirements and finding compatible products..."):
-            result = run_pipeline(user_text, products_df, demo_mode=DEMO_MODE)
-        st.session_state["pipeline_result"] = result
+    user_text = ""
+
+    if input_mode == "Describe it":
+        user_text = st.text_area(
+            "Describe your bathroom",
+            placeholder=EXAMPLE_REQUEST,
+            height=140,
+            help="Include bathroom dimensions, budget, preferred style/finish, and the products you need.",
+        )
+
+        design_button = st.button("Design My Bathroom", type="primary")
+
+    else:
+        architecture_file = st.file_uploader(
+            "Upload your bathroom architecture",
+            type=["usd", "usda", "usdc", "usdz"],
+            help="Upload a USD/USDZ architectural model containing your bathroom layout and dimensions.",
+        )
+
+        if architecture_file:
+            st.success(f"Uploaded: {architecture_file.name}")
+
+        architecture_selected_categories = _render_category_card_selector()
+
+        architecture_budget = st.number_input(
+            "Budget (₹)",
+            min_value=10000,
+            max_value=10000000,
+            value=150000,
+            step=10000,
+            help="Maximum budget for the recommended KOHLER products.",
+        )
+
+        architecture_theme = st.selectbox(
+            "Preferred bathroom style",
+            [
+                "Modern",
+                "Contemporary",
+                "Elegant",
+                "Minimalist",
+                "Luxury",
+                "Classic",
+            ],
+        )
+
+        design_button = st.button(
+            "Analyze & Design Bathroom",
+            type="primary",
+            disabled=(
+                architecture_file is None
+                or not architecture_selected_categories
+            ),
+        )
+
+    if design_button:
+        if input_mode == "Describe it":
+            products_df = get_catalog()
+            with st.spinner("Understanding your requirements and finding compatible products..."):
+                result = run_pipeline(
+                    user_text,
+                    products_df,
+                    demo_mode=DEMO_MODE,
+                )
+            st.session_state["pipeline_result"] = result
+
+        else:
+            if architecture_file is None:
+                st.warning("Please upload a USD or USDZ file first.")
+            else:
+                try:
+                    file_suffix = Path(architecture_file.name).suffix
+
+                    with tempfile.NamedTemporaryFile(
+                        delete=False,
+                        suffix=file_suffix,
+                    ) as temp_file:
+                        temp_file.write(architecture_file.getbuffer())
+                        temp_path = temp_file.name
+
+                    with st.spinner("Analyzing your bathroom architecture..."):
+                        architecture_data = parse_usd_file(temp_path)
+
+                    st.session_state["architecture_data"] = architecture_data
+
+                    requirements = architecture_to_requirements(
+                        architecture_data,
+                        budget_inr=architecture_budget,
+                        theme=architecture_theme,
+                        required_categories=architecture_selected_categories,
+                    )
+
+                    st.session_state["architecture_requirements"] = requirements
+
+                    products_df = get_catalog()
+
+                    with st.spinner("Finding compatible KOHLER products..."):
+                        result = run_requirements_pipeline(
+                            requirements,
+                            products_df,
+                        )
+
+                    st.session_state["pipeline_result"] = result
+
+                    st.success("Bathroom architecture analyzed successfully.")
+
+                    _render_architecture_data(architecture_data)
+
+                except USDParserError as exc:
+                    st.error(f"Could not analyze the architecture file: {exc}")
+
+                except Exception as exc:
+                    st.error(f"Unexpected error while analyzing the file: {exc}")
 
     if "pipeline_result" in st.session_state:
         st.divider()
