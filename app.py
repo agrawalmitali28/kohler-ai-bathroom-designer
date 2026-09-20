@@ -1164,8 +1164,8 @@ def _render_parsed_requirements(clean_requirements: dict) -> None:
 
     st.caption(f"Preferences: {color} · {water} · Features: {features}")
 
-    with st.expander("Show technical details"):
-        st.json(clean_requirements)
+    # with st.expander("Show technical details"):
+    #     st.json(clean_requirements)
 
 
 def render_result(result: dict) -> None:
