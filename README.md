@@ -532,7 +532,15 @@ Supported input formats include:
 .usdc
 .usdz
 ```
+### Why USD/USDZ?
 
+USD/USDZ is used to capture the **physical and spatial context of the bathroom** in a structured 3D format.
+
+A practical example is **Apple's RoomPlan framework**, which can use LiDAR-enabled devices to capture room dimensions and spatial information and export the captured room as **USD/USDZ**.
+
+In this project, the USD/USDZ file provides information such as **room dimensions and detected architectural components**. This information is used to understand the available space and check spatial compatibility.
+
+Importantly, the architecture file does **not** decide which KOHLER products the user wants. Product categories are explicitly selected by the user, while the existing recommendation engine uses both the selected products and the available bathroom space to generate recommendations.
 ---
 
 ## 🧠 AI Prompt Documentation
